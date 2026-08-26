@@ -1,0 +1,27 @@
+services:
+  fastapi:
+    build: ./app
+    container_name: gitcommentbot
+    ports:
+      - "8000:8000"
+    environment:
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: gitcommentbot-tunnel
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    networks:
+      - app-network
+    depends_on:
+      - fastapi
+    restart: unless-stopped
+
+networks:
+  app-network:
+    driver: bridge
