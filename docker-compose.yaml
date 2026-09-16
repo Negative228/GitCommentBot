@@ -3,7 +3,7 @@ services:
     build: ./app
     container_name: fastapi-app
     expose:
-      - "3000"
+      - "8000"
     environment:
       - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
     #networks:
@@ -16,8 +16,7 @@ services:
     restart: unless-stopped
     environment:
       - TOKEN=${CLOUDPUB_TOKEN}
-      - HTTP=fastapi-app:3000
-    command: run
+    command: publish http fastapi-app:8000 --name gitcommentbot
     depends_on:
       - fastapi-app
     volumes:
