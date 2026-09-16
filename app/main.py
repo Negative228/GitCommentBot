@@ -14,6 +14,6 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 app.include_router(webhook_router)
 
-@app.get("/ok")
+@app.get("/")
 async def ok():
-    return {"status": "ok"}
+    return {"message": "ok"}
