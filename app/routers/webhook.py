@@ -1,4 +1,8 @@
+import sys
+sys.path.append("..")
+
 import hmac, hashlib, os, json
+from tasks import process_pull_request
 
 GITHUB_WEBHOOK_SECRET = os.getenv('GITHUB_WEBHOOK_SECRET')
 
@@ -37,14 +41,17 @@ async def receive_webhook(  request: Request,
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON")
     
-    print(f"\n{'='*50}")
-    print(f"Event: {x_github_event}")
-    print(f"Action: {payload.get('action')}")
-    print(f"User: {payload.get('sender', {}).get('login')}")
-    print(f"Repo: {payload.get('repository', {}).get('full_name')}")
-    print(f"{'='*50}\n")
+    action = payload.get("action")
+    print(f"\n Получено событие: {x_github_event} | Action: {action}")
     
-    return {"status": "received"}
+    # TEST TEST TEST
+    if True: #x_github_event == "pull_request":
+        task = process_pull_request.delay(payload)
+        print(f"Задача отправлена в очередь. Task ID: {task.id}")
+        return {"status": "received"}
+    
+    print(f"Событие {x_github_event} не обрабатывается")
+    return {"status": "ignored", "detail": "event type not supported"}
 
 @router.get("/ok")
 async def ok():

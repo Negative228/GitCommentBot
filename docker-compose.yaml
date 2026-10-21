@@ -6,14 +6,11 @@ services:
       - "8000"
     environment:
       - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
-    #networks:
-    #  - app-network
     restart: unless-stopped
 
   cloudpub:
     image: cloudpub/cloudpub:latest
     container_name: cloudpub-tunnel
-    restart: unless-stopped
     environment:
       - TOKEN=${CLOUDPUB_TOKEN}
     command: publish http fastapi-app:8000 --name gitcommentbot
@@ -21,6 +18,27 @@ services:
       - fastapi-app
     volumes:
       - cloudpub-config:/home/cloudpub
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  celery-worker:
+    build: ./app
+    container_name: celery
+    command: celery -A tasks.celery_app worker --loglevel=info
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+      - fastapi-app
+    volumes:
+      - ./app:/app
+    restart: unless-stopped
 
 volumes:
   cloudpub-config:
