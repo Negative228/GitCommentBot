@@ -49,7 +49,7 @@ def parse_webhook_payload(event_type: str, payload_dict: dict) -> SGitHubEvent:
 
 def process_event(self, payload: SGitHubEvent, x_github_event: str = Header(None)):
     if x_github_event == "pull_request":
-        task = process_pull_request.delay(payload_dict)
+        task = process_pull_request.delay(payload)
         print(f"Задача отправлена в очередь. Task ID: {task.id}")
         
         return {
@@ -60,16 +60,16 @@ def process_event(self, payload: SGitHubEvent, x_github_event: str = Header(None
         }
     
     elif x_github_event == "push":
-        print(f"Push в ветку: {validated_payload.ref}")
-        print(f"Коммитов: {len(validated_payload.commits)}")
+        print(f"Push в ветку: {payload.ref}")
+        print(f"Коммитов: {len(payload.commits)}")
         return {"status": "received", "event_type": "push"}
     
     elif x_github_event == "issues":
-        print(f"Issue #{validated_payload.issue.number}: {validated_payload.issue.title}")
+        print(f"Issue #{payload.issue.number}: {payload.issue.title}")
         return {"status": "received", "event_type": "issues"}
     
     elif x_github_event == "issue_comment":
-        print(f"Комментарий к Issue #{validated_payload.issue.number}")
+        print(f"Комментарий к Issue #{payload.issue.number}")
         return {"status": "received", "event_type": "issue_comment"}
     
     else:
@@ -90,7 +90,7 @@ async def receive_webhook(  request: Request,
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON")
     
-    validated_payload = parse_webhook_payload(x_github_event, payload_dict)
+    validated_payload = parse_webhook_payload(x_github_event, payload_body)
 
     # Временная печать информации
     print(f"\n{'='*60}")
