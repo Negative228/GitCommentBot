@@ -49,7 +49,7 @@ def parse_webhook_payload(event_type: str, payload_dict: dict) -> SGitHubEvent:
 
 def process_event(payload: SGitHubEvent, x_github_event: str = Header(None)):
     if x_github_event == "pull_request":
-        task = process_pull_request.delay(payload)
+        task = process_pull_request.delay(payload.model_dump())
         print(f"Задача отправлена в очередь. Task ID: {task.id}")
         
         return {
@@ -60,7 +60,7 @@ def process_event(payload: SGitHubEvent, x_github_event: str = Header(None)):
         }
     
     elif x_github_event == "push":
-        task = process_push.delay(payload)
+        task = process_push.delay(payload.model_dump())
         print(f"Задача отправлена в очередь. Task ID: {task.id}")
         return {
             "status": "accepted",
