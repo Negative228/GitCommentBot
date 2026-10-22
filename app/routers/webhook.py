@@ -43,7 +43,7 @@ def parse_webhook_payload(event_type: str, payload_dict: dict) -> SGitHubEvent:
             return SIssueCommentWebhook(**payload_dict)
         else:
             return SGitHubEvent(**payload_dict)
-    except ValidationError as e:
+    except Error as e:
         print(f"❌ Ошибка валидации payload: {e}")
         raise HTTPException(status_code=422, detail=f"Invalid payload structure: {str(e)}")
 
@@ -90,7 +90,7 @@ async def receive_webhook(  request: Request,
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON")
     
-    validated_payload = parse_webhook_payload(x_github_event, payload_body)
+    validated_payload = parse_webhook_payload(x_github_event, payload)
 
     # Временная печать информации
     print(f"\n{'='*60}")
