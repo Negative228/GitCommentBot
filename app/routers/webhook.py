@@ -47,7 +47,7 @@ def parse_webhook_payload(event_type: str, payload_dict: dict) -> SGitHubEvent:
         print(f"❌ Ошибка валидации payload: {e}")
         raise HTTPException(status_code=422, detail=f"Invalid payload structure: {str(e)}")
 
-def process_event(self, payload: SGitHubEvent, x_github_event: str = Header(None)):
+def process_event(payload: SGitHubEvent, x_github_event: str = Header(None)):
     if x_github_event == "pull_request":
         task = process_pull_request.delay(payload)
         print(f"Задача отправлена в очередь. Task ID: {task.id}")
@@ -60,9 +60,14 @@ def process_event(self, payload: SGitHubEvent, x_github_event: str = Header(None
         }
     
     elif x_github_event == "push":
-        print(f"Push в ветку: {payload.ref}")
-        print(f"Коммитов: {len(payload.commits)}")
-        return {"status": "received", "event_type": "push"}
+        task = process_push.delay(payload)
+        print(f"Задача отправлена в очередь. Task ID: {task.id}")
+        return {
+            "status": "accepted",
+            "task_id": task.id,
+            "event_type": "push",
+            "message": "Push processing started"
+        }
     
     elif x_github_event == "issues":
         print(f"Issue #{payload.issue.number}: {payload.issue.title}")
