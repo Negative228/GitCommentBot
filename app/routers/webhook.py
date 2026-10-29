@@ -44,7 +44,7 @@ def parse_webhook_payload(event_type: str, payload_dict: dict) -> SGitHubEvent:
         else:
             return SGitHubEvent(**payload_dict)
     except Error as e:
-        print(f"❌ Ошибка валидации payload: {e}")
+        print(f"Ошибка валидации payload: {e}")
         raise HTTPException(status_code=422, detail=f"Invalid payload structure: {str(e)}")
 
 def process_event(payload: SGitHubEvent, x_github_event: str = Header(None)):

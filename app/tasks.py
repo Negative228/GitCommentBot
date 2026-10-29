@@ -1,7 +1,59 @@
 from celery import Celery
-import os, json, time
+import os, json, time, httpx
 from datetime import datetime
 from schemas import *
+from typing import Optional
+
+GITHUB_WEBHOOK_SECRET = os.getenv('GITHUB_WEBHOOK_SECRET')
+GITHUB_API   = "https://api.github.com"
+
+def _gh_headers(accept: str = "application/vnd.github.v3+json") -> dict:
+    h = {
+        "Accept": accept,
+        "User-Agent": "GitCommentBot/1.0",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if GITHUB_TOKEN:
+        h["Authorization"] = f"Bearer {GITHUB_TOKEN}"
+    return h
+
+
+def fetch_compare_diff(repo_full_name: str, before: str, after: str) -> Optional[str]:
+    """Unified diff между двумя SHA через Compare API."""
+    if not before or set(before) == {"0"}:
+        return None
+    url = f"{GITHUB_API}/repos/{repo_full_name}/compare/{before}...{after}"
+    with httpx.Client(timeout=60, follow_redirects=True) as client:
+        resp = client.get(url, headers=_gh_headers("application/vnd.github.v3.diff"))
+    if resp.status_code == 404:
+        return None
+    resp.raise_for_status()
+    return resp.text
+
+
+def fetch_pr_diff(repo_full_name: str, pr_number: int) -> Optional[str]:
+    """Unified diff конкретного PR через Pulls API."""
+    url = f"{GITHUB_API}/repos/{repo_full_name}/pulls/{pr_number}"
+    with httpx.Client(timeout=60, follow_redirects=True) as client:
+        resp = client.get(url, headers=_gh_headers("application/vnd.github.v3.diff"))
+    if resp.status_code == 404:
+        return None
+    resp.raise_for_status()
+    return resp.text
+
+
+"""
+def save_diff(repo_full_name: str, identifier: str, diff: str) -> str:
+    
+    safe_repo = repo_full_name.replace("/", "_")
+    os.makedirs(DIFF_DIR, exist_ok=True)
+    ts = datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+    path = os.path.join(DIFF_DIR, f"{safe_repo}_{identifier}_{ts}.diff")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(diff)
+    return path
+"""
+################################################################################
 
 celery_app = Celery(
     "gitcommentbot",
@@ -23,9 +75,9 @@ celery_app.conf.update(
 @celery_app.task(bind=True, max_retries=1, default_retry_delay=30, pydantic=True, rate_limit='1/m') #rate_limit='10/m' #pydantic=True
 def process_push(self, payload: SPushWebhook):
     try:
-        repo_full_name = payload.repository.full_name
-        sender = payload.sender.login
-        ref = payload.ref
+        repo_full_name =    payload.repository.full_name
+        sender =            payload.sender.login
+        ref =               payload.ref
         
         if payload.deleted:
             push_type = "Удаление ветки"
@@ -40,35 +92,22 @@ def process_push(self, payload: SPushWebhook):
         print(f"Pusher: {payload.pusher.get('name', sender)} ({payload.pusher.get('email', 'N/A')})")
         print(f"Compare URL: {payload.compare}")
         
-        # Если это не удаление ветки, анализируем коммиты
-        if not payload.deleted and payload.commits:
-            print(f"\n📝 Коммитов в пуше: {len(payload.commits)}")
-            
-            # Считаем общую статистику по файлам
-            # TO DO: Вынести в другое место
-            total_added = 0
-            total_removed = 0
-            total_modified = 0
-            
-            for commit in payload.commits:
-                total_added += len(commit.added)
-                total_removed += len(commit.removed)
-                total_modified += len(commit.modified)
-            
-            print(f"\n Затронутые файлы:")
-            print(f"   - Добавлено: {total_added}")
-            print(f"   - Удалено: {total_removed}")
-            print(f"   - Изменено: {total_modified}")
-            
-            # Здесь позже будет логика:
-            # 1. Если пуш в main/master -> обновить RAG базу (переиндексировать измененные файлы)
-            # 2. Если пуш в feature-ветку -> проверить на наличие секретов/уязвимостей
-            
-        elif payload.deleted:
+        diff_text: Optional[str] = None
+        diff_path: Optional[str] = None
+
+        if payload.deleted:
             print("Ветка удалена, коммиты отсутствуют.")
-            
-        else:
+        elif not payload.commits:
             print("Dummy-пуш")
+        else:
+            # ... существующая статистика по файлам ...
+            print("\nСкачиваем diff...")
+            diff_text = fetch_compare_diff(repo_full_name, payload.before, payload.after)
+            if diff_text:
+                #diff_path = save_diff(repo_full_name, payload.after[:12], diff_text)
+                print(f"Diff: {len(diff_text)}")
+            else:
+                print("Diff пуст (например, создание ветки или нет изменений)")
 
         print(f"{'='*60}\n")
         
@@ -78,11 +117,12 @@ def process_push(self, payload: SPushWebhook):
         print("Push успешно обработан!")
         
         return {
-            "status": "success",
-            "repo": repo_full_name,
-            "branch": ref,
+            "status":        "success",
+            "repo":          repo_full_name,
+            "branch":        ref,
             "commits_count": len(payload.commits),
-            "processed_at": datetime.utcnow().isoformat()
+            "diff_size":     len(diff_text) if diff_text else 0,
+            "processed_at":  datetime.utcnow().isoformat(),
         }
         
     except Exception as e:
@@ -92,12 +132,12 @@ def process_push(self, payload: SPushWebhook):
 @celery_app.task(bind=True, max_retries=1, default_retry_delay=30, pydantic=True, rate_limit='1/m') #rate_limit='10/m' #pydantic=True
 def process_pull_request(self, payload: SPullRequestWebhook):
     try:
-        action = payload.action
-        pr_number = payload.number
-        pr_title = payload.pull_request.title
-        pr_url = payload.pull_request.url
-        repo_full_name = payload.repository.full_name
-        user = payload.sender.login
+        action =            payload.action
+        pr_number =         payload.number
+        pr_title =          payload.pull_request.title
+        pr_url =            payload.pull_request.url
+        repo_full_name =    payload.repository.full_name
+        user =              payload.sender.login
         
         print(f"\n{'='*60}")
         print(f"Обработка PR #{pr_number}: {pr_title}")
@@ -107,15 +147,31 @@ def process_pull_request(self, payload: SPullRequestWebhook):
         print(f"URL: {pr_url}")
         print(f"{'='*60}\n")
         
+        diff_text: Optional[str] = None
+        diff_path: Optional[str] = None
+
+        # Diff актуален только для «живых» действий
+        if action in {"opened", "synchronize", "reopened", "ready_for_review", "edited"}:
+            print("⬇️ Скачиваем diff PR...")
+            diff_text = fetch_pr_diff(repo_full_name, pr_number)
+            if diff_text:
+                #diff_path = save_diff(repo_full_name, f"pr{pr_number}", diff_text)
+                print(f"✅ Diff: {len(diff_text)}")
+            else:
+                print("⚠️ Diff пуст")
+        else:
+            print(f"Действие '{action}' — diff не запрашиваем")
+        
         print("Имитируем бурную деятельность (5 секунд)...")
         time.sleep(5)
         
         print("PR обработан успешно!")
         
         return {
-            "status": "success",
-            "pr_number": pr_number,
-            "processed_at": datetime.utcnow().isoformat()
+            "status":      "success",
+            "pr_number":   pr_number,
+            "diff_size":   len(diff_text) if diff_text else 0,
+            "processed_at": datetime.utcnow().isoformat(),
         }
         
     except Exception as e:
