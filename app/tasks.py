@@ -4,7 +4,7 @@ from datetime import datetime
 from schemas import *
 from typing import Optional
 
-GITHUB_WEBHOOK_SECRET = os.getenv('GITHUB_WEBHOOK_SECRET')
+GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
 GITHUB_API   = "https://api.github.com"
 
 def _gh_headers(accept: str = "application/vnd.github.v3+json") -> dict:
@@ -108,7 +108,7 @@ def process_push(self, payload: SPushWebhook):
                 print(f"Diff: {len(diff_text)}")
             else:
                 print("Diff пуст (например, создание ветки или нет изменений)")
-
+            
         print(f"{'='*60}\n")
         
         print("Имитируем бурную деятельность (3 секунды)...")
@@ -152,13 +152,13 @@ def process_pull_request(self, payload: SPullRequestWebhook):
 
         # Diff актуален только для «живых» действий
         if action in {"opened", "synchronize", "reopened", "ready_for_review", "edited"}:
-            print("⬇️ Скачиваем diff PR...")
+            print("Скачиваем diff PR...")
             diff_text = fetch_pr_diff(repo_full_name, pr_number)
             if diff_text:
                 #diff_path = save_diff(repo_full_name, f"pr{pr_number}", diff_text)
-                print(f"✅ Diff: {len(diff_text)}")
+                print(f"Diff: {len(diff_text)}")
             else:
-                print("⚠️ Diff пуст")
+                print("Diff пуст")
         else:
             print(f"Действие '{action}' — diff не запрашиваем")
         

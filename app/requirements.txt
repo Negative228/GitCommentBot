@@ -5,3 +5,5 @@ python-dotenv==1.2.3
 celery==5.6.3
 redis==8.1.0
 httpx==0.28.1
+sqlalchemy[asyncio]
+asyncpg==0.32.0

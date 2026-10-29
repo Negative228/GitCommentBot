@@ -4,6 +4,8 @@ sys.path.append("..")
 import hmac, hashlib, os, json
 from tasks import process_pull_request, process_push
 from schemas import *
+from database import SessionDep
+from repository import EventsRepository
 
 GITHUB_WEBHOOK_SECRET = os.getenv('GITHUB_WEBHOOK_SECRET')
 
@@ -27,23 +29,27 @@ def verify_signature(payload_body: bytes, signature: str) -> bool:
     
     return hmac.compare_digest(expected, signature)
 
-def parse_webhook_payload(event_type: str, payload_dict: dict) -> SGitHubEvent:
+async def parse_webhook_payload(event_id:str, event_type: str, payload_dict: dict, session: SessionDep) -> SGitHubEvent:
     """
     Парсит payload в соответствующую Pydantic-модель на основе типа события.
     Возвращает базовый SGitHubEvent для неизвестных типов.
     """
     try:
         if event_type == "pull_request":
-            return SPullRequestWebhook(**payload_dict)
+            payload = SPullRequestWebhook(**payload_dict)
         elif event_type == "push":
-            return SPushWebhook(**payload_dict)
+            payload = SPushWebhook(**payload_dict)
         elif event_type == "issues":
-            return SIssuesWebhook(**payload_dict)
+            payload = SIssuesWebhook(**payload_dict)
         elif event_type == "issue_comment":
-            return SIssueCommentWebhook(**payload_dict)
+            payload = SIssueCommentWebhook(**payload_dict)
         else:
-            return SGitHubEvent(**payload_dict)
-    except Error as e:
+            payload = SGitHubEvent(**payload_dict)
+        
+        await EventsRepository.add_one(event_id=event_id, event_type=event_type, data=payload, session=session)
+
+        return payload
+    except Exception as e:
         print(f"Ошибка валидации payload: {e}")
         raise HTTPException(status_code=422, detail=f"Invalid payload structure: {str(e)}")
 
@@ -83,8 +89,11 @@ def process_event(payload: SGitHubEvent, x_github_event: str = Header(None)):
 
 @router.post("/github")
 async def receive_webhook(  request: Request,
+                            session: SessionDep, 
                             x_hub_signature_256: str = Header(None),
-                            x_github_event: str = Header(None), ):
+                            x_github_event: str = Header(None), 
+                            x_github_delivery: str = Header(None) ):
+
     payload_body = await request.body()
     
     if not verify_signature(payload_body, x_hub_signature_256):
@@ -95,7 +104,7 @@ async def receive_webhook(  request: Request,
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON")
     
-    validated_payload = parse_webhook_payload(x_github_event, payload)
+    validated_payload = await parse_webhook_payload(x_github_delivery, x_github_event, payload, session)
 
     # Временная печать информации
     print(f"\n{'='*60}")

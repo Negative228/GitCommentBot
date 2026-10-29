@@ -40,7 +40,7 @@ class SGitHubOrganization(BaseModel):
 
 class SGitHubEvent(BaseModel):
     model_config = ConfigDict(extra='ignore')
-    
+
     action: Optional[str] = None
     sender: SGitHubUser
     repository: SGitHubRepository

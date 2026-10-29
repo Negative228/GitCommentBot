@@ -1,4 +1,19 @@
 services:
+  postgres:
+    image: postgres
+    container_name: postgres
+    environment:
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_NAME}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+  
+
   fastapi-app:
     build: ./app
     container_name: fastapi-app
@@ -6,6 +21,14 @@ services:
       - "8000"
     environment:
       - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
   cloudpub:
@@ -33,6 +56,11 @@ services:
     command: celery -A tasks.celery_app worker --loglevel=info
     environment:
       - REDIS_URL=redis://redis:6379/0
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=${POSTGRES_USER:-postgres}
+      - DB_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - DB_NAME=${POSTGRES_DB:-tasks_db}
     depends_on:
       - redis
       - fastapi-app
